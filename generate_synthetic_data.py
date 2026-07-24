@@ -135,9 +135,9 @@ def main():
 
     # Đã tăng số lượng data để model hội tụ tốt hơn
     splits = [
-        ("train", 1000, 0),
-        ("val",   100,  100000), 
-        ("test",  100,  200000)
+        ("train", 200, 0),
+        ("val",   10,  100000), 
+        ("test",  10,  200000)
     ]
 
     for mode, _, _ in splits:
