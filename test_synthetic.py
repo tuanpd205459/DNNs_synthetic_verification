@@ -26,7 +26,11 @@ def main():
         print("[Error] Test dataset not found.")
         return
 
-    test_dataset = SyntheticHoloDataset(test_dir)
+    # Sửa 1: Thêm cờ training=False để lấy ground truth
+    test_dataset = SyntheticHoloDataset(
+        test_dir,
+        training=False
+    )
 
     test_loader = torch.utils.data.DataLoader(
         test_dataset,
@@ -50,6 +54,7 @@ def main():
         map_location=device
     )
 
+    # Chỉ load model, không cần physics_layer khi inference
     model.load_state_dict(checkpoint["model"])
     model.eval()
 
@@ -61,7 +66,8 @@ def main():
 
     with torch.no_grad():
 
-        for i, (xx, gt_phase, freq_params, sample_name) in enumerate(test_loader):
+        # Sửa 2: Chỉ unpack 3 biến theo đúng interface mới của Dataset
+        for i, (xx, gt_phase, sample_name) in enumerate(test_loader):
 
             xx = xx.to(device)
 

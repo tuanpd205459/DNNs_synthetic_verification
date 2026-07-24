@@ -92,7 +92,7 @@ def simulate_offaxis_holograms(
         wavelength=0.6328,
         pixel_size=3.45):
     """
-    Simulate two off-axis holograms with RANDOM reference beam angles (theta1, theta2) for each sample:
+    Simulate two off-axis holograms with FIXED reference beam angles (theta1, theta2):
     fx = pixel_size * sin(theta_x) / wavelength
     fy = pixel_size * sin(theta_y) / wavelength
     R = exp(j*2*pi*(fx*XX + fy*YY))
@@ -105,23 +105,18 @@ def simulate_offaxis_holograms(
 
     XX, YY = np.meshgrid(x_grid, y_grid)
 
-   # theta_x1 = np.random.uniform(1.0, 3.0)
-   # theta_y1 = np.random.uniform(1.0, 3.0)
+    # Cố định góc cho Hologram 1
     theta_x1 = 2.0
     theta_y1 = 2.0
     fx1 = pixel_size * np.sin(np.deg2rad(theta_x1)) / wavelength
     fy1 = pixel_size * np.sin(np.deg2rad(theta_y1)) / wavelength
-
     R1 = np.exp(1j * 2 * np.pi * (fx1 * XX + fy1 * YY))
 
-   # theta_x2 = np.random.uniform(1.0, 3.0)
-   # theta_y2 = np.random.uniform(1.0, 3.0)
+    # Cố định góc cho Hologram 2
     theta_x2 = 3.0
     theta_y2 = 3.0
-
     fx2 = pixel_size * np.sin(np.deg2rad(theta_x2)) / wavelength
     fy2 = pixel_size * np.sin(np.deg2rad(theta_y2)) / wavelength
-
     R2 = np.exp(1j * 2 * np.pi * (fx2 * XX + fy2 * YY))
 
     U = np.exp(1j * phase_map)
@@ -131,25 +126,24 @@ def simulate_offaxis_holograms(
 
     return (
         H1.astype(np.float32),
-        H2.astype(np.float32),
-        (fx1, fy1),
-        (fx2, fy2)
+        H2.astype(np.float32)
     )
 
 
 def main():
     out_dir = "data_synth"
 
+    # Đã tăng số lượng data để model hội tụ tốt hơn
     splits = [
         ("train", 1000, 0),
-        ("val",    100, 100000), 
-        ("test",   100, 200000)
+        ("val",   100,  100000), 
+        ("test",  100,  200000)
     ]
 
     for mode, _, _ in splits:
         os.makedirs(os.path.join(out_dir, mode), exist_ok=True)
 
-    print("Generating synthetic dataset with RANDOM reference beam angles for each sample...")
+    print("Generating synthetic dataset with FIXED reference beam angles...")
 
     for mode, count, seed_offset in splits:
         print(f"Generating {mode} set ({count} samples)...")
@@ -161,7 +155,8 @@ def main():
                 max_phase=10 * np.pi
             )
 
-            H1, H2, f1, f2 = simulate_offaxis_holograms(gt_phase)
+            # Chỉ nhận H1, H2
+            H1, H2 = simulate_offaxis_holograms(gt_phase)
 
             sample_dir = os.path.join(
                 out_dir,
@@ -171,13 +166,10 @@ def main():
 
             os.makedirs(sample_dir, exist_ok=True)
 
+            # Lưu mảng numpy (bỏ lưu freq_params.npy)
             np.save(os.path.join(sample_dir, "gt_phase.npy"), gt_phase)
             np.save(os.path.join(sample_dir, "hologram1.npy"), H1)
             np.save(os.path.join(sample_dir, "hologram2.npy"), H2)
-            np.save(
-                os.path.join(sample_dir, "freq_params.npy"),
-                np.array([f1, f2], dtype=np.float32)
-            )
 
             # Visualization images
             PIL.Image.fromarray(
@@ -192,7 +184,7 @@ def main():
                 (H2 / H2.max() * 255).astype(np.uint8)
             ).save(os.path.join(sample_dir, "hologram2.png"))
 
-    print(f"✅ Generated synthetic dataset with per-sample random reference angles in '{out_dir}/'!")
+    print(f"✅ Generated synthetic dataset with FIXED reference angles in '{out_dir}/'!")
 
 
 if __name__ == '__main__':
