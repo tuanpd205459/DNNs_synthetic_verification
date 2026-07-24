@@ -20,20 +20,6 @@ from dataset import SyntheticHoloDataset
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 
-def remove_linear_tilt(phase_map):
-    """
-    Removes 2D linear plane / residual reference carrier tilt (a*X + b*Y + c) from phase map.
-    """
-    H, W = phase_map.shape
-    x = np.linspace(-1, 1, W, dtype=np.float32)
-    y = np.linspace(-1, 1, H, dtype=np.float32)
-    XX, YY = np.meshgrid(x, y)
-    A = np.column_stack([XX.ravel(), YY.ravel(), np.ones(H * W, dtype=np.float32)])
-    coeffs, _, _, _ = np.linalg.lstsq(A, phase_map.ravel(), rcond=None)
-    plane = (A @ coeffs).reshape(H, W)
-    return phase_map - plane
-
-
 def main():
     print(f"======================================================")
     print(f" Starting Verification Training on Device: [{device.type.upper()}]")
@@ -169,13 +155,10 @@ def main():
                     pred_sc = model(xx_norm)
                     pred_ph = torch.atan2(pred_sc[:, 0:1, :, :], pred_sc[:, 1:2, :, :]).squeeze().cpu().numpy()
 
-                    # 2D Linear Tilt Subtraction for fair phase comparison
-                    pred_ph_c = remove_linear_tilt(pred_ph)
-                    gt_wrapped_c = remove_linear_tilt(gt_wrapped)
-
-                    data_range = gt_wrapped_c.max() - gt_wrapped_c.min()
-                    val_mse += np.mean((pred_ph_c - gt_wrapped_c) ** 2)
-                    val_ssim += ssim(gt_wrapped_c, pred_ph_c, data_range=data_range)
+                    # Đã lược bỏ phần 2D Linear Tilt Subtraction
+                    data_range = gt_wrapped.max() - gt_wrapped.min()
+                    val_mse += np.mean((pred_ph - gt_wrapped) ** 2)
+                    val_ssim += ssim(gt_wrapped, pred_ph, data_range=data_range)
                     
             val_mse /= eval_count
             val_ssim /= eval_count
