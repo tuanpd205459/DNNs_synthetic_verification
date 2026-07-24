@@ -1,7 +1,7 @@
 ###############################################################
 #  Synthetic Verification Training Script (Colab Fast Training)
 #  Self-Supervised Multi-View Off-Axis Phase Reconstruction
-#  - Learnable Reference Wavevectors (f1, f2)
+#  - Fixed Reference Wavevectors (f1, f2)
 #  - Minimal Hologram Matching Loss (Loss 1)
 #  - Continuous [sin(phi), cos(phi)] Unit-Normalized Representation
 ###############################################################
@@ -89,20 +89,21 @@ def main():
     print(f"Config: batch_size={batch_size}, epochs={epochs}, lr={learning_rate}")
 
     model = PhaseUNet(in_channels=2, out_channels=2).to(device)
+    
+    # 1. Khởi tạo physics_layer với các góc cố định
     physics_layer = OffAxisPhysicsModule(
         patch_size=patch_size,
         pixel_size=3.45,
         wavelength=0.6328,
-        init_theta1_x=2.0,
-        init_theta1_y=2.0,
-        init_theta2_x=1.5,
-        init_theta2_y=1.5,
-        learnable_angles=True
+        theta1_x=2.0,
+        theta1_y=2.0,
+        theta2_x=3.0,
+        theta2_y=3.0
     ).to(device)
 
-    # Register both network parameters AND learnable physics layer parameters in Adam optimizer
+    # 2. Chỉ đưa các tham số của mạng UNet vào Optimizer (physics_layer giờ không learnable)
     optimizer = torch.optim.Adam(
-        list(model.parameters()) + list(physics_layer.parameters()),
+        model.parameters(),
         lr=learning_rate,
         weight_decay=1e-5
     )
@@ -123,14 +124,17 @@ def main():
 
             pred_sc = model(xx_norm)
             
-            # Forward physics with self-calibrating learnable reference wavevectors
+            # Forward physics with fixed reference wavevectors
             im_x = physics_layer(pred_sc)
 
             loss = maeloss(im_x, xx_norm)
 
             optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(list(model.parameters()) + list(physics_layer.parameters()), 1.0)
+            
+            # 3. Chỉ clip gradient cho model
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            
             optimizer.step()
 
             total_physics_loss += loss.item()
@@ -160,20 +164,20 @@ def main():
                     pred_sc = model(xx_norm)
                     pred_ph = torch.atan2(pred_sc[:, 0:1, :, :], pred_sc[:, 1:2, :, :]).squeeze().cpu().numpy()
 
-                    # 2D Linear Tilt Subtraction for fair phase comparison across random sample angles
+                    # 2D Linear Tilt Subtraction for fair phase comparison
                     pred_ph_c = remove_linear_tilt(pred_ph)
                     gt_wrapped_c = remove_linear_tilt(gt_wrapped)
 
                     data_range = gt_wrapped_c.max() - gt_wrapped_c.min()
                     val_mse += np.mean((pred_ph_c - gt_wrapped_c) ** 2)
                     val_ssim += ssim(gt_wrapped_c, pred_ph_c, data_range=data_range)
+                    
             val_mse /= eval_count
             val_ssim /= eval_count
 
-            theta1, theta2 = physics_layer.get_angles()
-
-            theta1 = theta1.detach().cpu().numpy()
-            theta2 = theta2.detach().cpu().numpy()
+            # 4. Lấy trực tiếp tham số theta từ buffer của physics_layer
+            theta1 = physics_layer.theta1.cpu().numpy()
+            theta2 = physics_layer.theta2.cpu().numpy()
 
             fx1, fy1, fx2, fy2 = physics_layer.get_frequencies()
 
@@ -181,7 +185,6 @@ def main():
             fy1 = fy1.item()
             fx2 = fx2.item()
             fy2 = fy2.item()
-
 
             print(
                 f" | SSIM: {val_ssim:.4f}"
@@ -192,9 +195,10 @@ def main():
                 f" | f2=({fx2:.4f}, {fy2:.4f})",
                 end=''
             )
+            
             torch.save({
                 'model': model.state_dict(),
-                'physics_layer': physics_layer.state_dict(),
+                'physics_layer': physics_layer.state_dict(),  # Vẫn save lại để load cho đồng bộ (dù nó không đổi)
                 'epoch': ep
             }, 'checkpoints/best_synthetic_model.pth')
 

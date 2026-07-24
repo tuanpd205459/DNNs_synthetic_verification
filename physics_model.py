@@ -7,12 +7,9 @@ class OffAxisPhysicsModule(nn.Module):
     """
     Physics Forward Model for dual off-axis holography.
 
-    Learnable parameters:
+    Fixed parameters:
         theta1 = [theta1_x, theta1_y] (deg)
         theta2 = [theta2_x, theta2_y] (deg)
-
-    The angles are constrained to:
-        theta_min <= theta <= theta_max
 
     Reference wave:
         fx = pixel_size * sin(theta_x) / wavelength
@@ -29,22 +26,16 @@ class OffAxisPhysicsModule(nn.Module):
         patch_size=256,
         pixel_size=3.45,          # um
         wavelength=0.6328,        # um
-        init_theta1_x=2.0,
-        init_theta1_y=2.0,
-        init_theta2_x=1.5,
-        init_theta2_y=1.5,
-        theta_min=1.0,
-        theta_max=3.0,
-        learnable_angles=True,
+        theta1_x=2.0,
+        theta1_y=2.0,
+        theta2_x=3.0,
+        theta2_y=3.0,
     ):
         super().__init__()
 
         self.patch_size = patch_size
         self.pixel_size = pixel_size
         self.wl = wavelength
-
-        self.theta_min = theta_min
-        self.theta_max = theta_max
 
         # ------------------------------------------------------------
         # Coordinate grid (pixel coordinates)
@@ -57,57 +48,23 @@ class OffAxisPhysicsModule(nn.Module):
         self.register_buffer("YY", torch.from_numpy(YY))
 
         # ------------------------------------------------------------
-        # Convert initial angle -> raw parameter
+        # Khởi tạo góc cố định (không dùng nn.Parameter)
         # ------------------------------------------------------------
-        def angle_to_raw(theta_deg):
-            x = (theta_deg - theta_min) / (theta_max - theta_min)
-            x = np.clip(x, 1e-6, 1.0 - 1e-6)
-            return np.log(x / (1.0 - x))
+        theta1 = torch.tensor([theta1_x, theta1_y], dtype=torch.float32)
+        theta2 = torch.tensor([theta2_x, theta2_y], dtype=torch.float32)
 
-        raw_theta1 = torch.tensor(
-            [
-                angle_to_raw(init_theta1_x),
-                angle_to_raw(init_theta1_y),
-            ],
-            dtype=torch.float32,
-        )
-
-        raw_theta2 = torch.tensor(
-            [
-                angle_to_raw(init_theta2_x),
-                angle_to_raw(init_theta2_y),
-            ],
-            dtype=torch.float32,
-        )
-
-        if learnable_angles:
-            self.theta1_raw = nn.Parameter(raw_theta1)
-            self.theta2_raw = nn.Parameter(raw_theta2)
-        else:
-            self.register_buffer("theta1_raw", raw_theta1)
-            self.register_buffer("theta2_raw", raw_theta2)
-
-    # -----------------------------------------------------------------
-    # Convert raw parameter -> angle (degree)
-    # -----------------------------------------------------------------
-    def get_angles(self):
-        theta1 = self.theta_min + \
-            (self.theta_max - self.theta_min) * torch.sigmoid(self.theta1_raw)
-
-        theta2 = self.theta_min + \
-            (self.theta_max - self.theta_min) * torch.sigmoid(self.theta2_raw)
-
-        return theta1, theta2
+        # Đăng ký dưới dạng buffer để model tự quản lý device (CPU/GPU) 
+        # nhưng không tính gradient (không learnable)
+        self.register_buffer("theta1", theta1)
+        self.register_buffer("theta2", theta2)
 
     # -----------------------------------------------------------------
     # Convert angle -> spatial frequency
     # -----------------------------------------------------------------
     def get_frequencies(self):
-
-        theta1, theta2 = self.get_angles()
-
-        theta1_rad = torch.deg2rad(theta1)
-        theta2_rad = torch.deg2rad(theta2)
+        # Chuyển đổi trực tiếp từ buffer độ sang radian
+        theta1_rad = torch.deg2rad(self.theta1)
+        theta2_rad = torch.deg2rad(self.theta2)
 
         fx1 = self.pixel_size * torch.sin(theta1_rad[0]) / self.wl
         fy1 = self.pixel_size * torch.sin(theta1_rad[1]) / self.wl
@@ -138,7 +95,7 @@ class OffAxisPhysicsModule(nn.Module):
         # Complex object field
         object_field = (cos_phi + 1j * sin_phi).squeeze(1)
 
-        # Learnable reference frequencies
+        # Fixed reference frequencies
         fx1, fy1, fx2, fy2 = self.get_frequencies()
 
         # Reference waves

@@ -118,7 +118,7 @@ def simulate_offaxis_holograms(
    # theta_y2 = np.random.uniform(1.0, 3.0)
     theta_x2 = 3.0
     theta_y2 = 3.0
-    
+
     fx2 = pixel_size * np.sin(np.deg2rad(theta_x2)) / wavelength
     fy2 = pixel_size * np.sin(np.deg2rad(theta_y2)) / wavelength
 
@@ -141,9 +141,9 @@ def main():
     out_dir = "data_synth"
 
     splits = [
-        ("train", 100, 0),
-        ("val",    20, 100000), 
-        ("test",   20, 200000)
+        ("train", 1000, 0),
+        ("val",    100, 100000), 
+        ("test",   100, 200000)
     ]
 
     for mode, _, _ in splits:
