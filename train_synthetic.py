@@ -62,8 +62,13 @@ def main():
         train_dir,
         training=True
     )
+
+    test_dataset = SyntheticHoloDataset(
+        test_dir,
+        training=False
+    )
     val_dataset = SyntheticHoloDataset(val_dir) if os.path.exists(val_dir) else None
-    test_dataset = SyntheticHoloDataset(test_dir)
+    
 
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
@@ -122,8 +127,7 @@ def main():
         total_physics_loss = 0.0
 
         # SỬA LỖI: Cần unpack đủ biến từ DataLoader thay vì chỉ dùng `for xx in train_loader:`
-        for xx, gt_phase, _, _ in train_loader:
-
+        for xx in train_loader:
             xx = xx.to(device)
             xx_norm = xx / torch.mean(xx, dim=(2,3), keepdim=True)
 
@@ -154,7 +158,7 @@ def main():
             eval_count = min(5, len(test_loader))
 
             with torch.no_grad():
-                for idx, (xx, gt_phase, _, _) in enumerate(test_loader):
+                for idx, (xx, gt_phase, sample_name) in enumerate(test_loader):
                     if idx >= eval_count:
                         break
                     xx = xx.to(device)
