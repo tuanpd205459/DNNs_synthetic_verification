@@ -42,7 +42,6 @@ def main():
     batch_size = 4
     epochs = 100
     learning_rate = 3e-4
-    patch_size = 256
 
     train_dataset = SyntheticHoloDataset(
         train_dir,
@@ -55,6 +54,16 @@ def main():
     )
     val_dataset = SyntheticHoloDataset(val_dir) if os.path.exists(val_dir) else None
     
+    # ---------------------------------------------------------
+    # SỬA LỖI: Tự động trích xuất patch_size từ tập dữ liệu thay vì hardcode
+    # ---------------------------------------------------------
+    sample_data = train_dataset[0]
+    # Kiểm tra xem dataset trả về tuple hay tensor trực tiếp
+    if isinstance(sample_data, tuple) or isinstance(sample_data, list):
+        patch_size = sample_data[0].shape[-1]
+    else:
+        patch_size = sample_data.shape[-1]
+    print(f"Auto-detected patch_size from dataset: {patch_size}")
 
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
@@ -84,7 +93,7 @@ def main():
 
     model = PhaseUNet(in_channels=2, out_channels=2).to(device)
     
-    # 1. Khởi tạo physics_layer với các góc cố định
+    # 1. Khởi tạo physics_layer với các góc cố định và patch_size động
     physics_layer = OffAxisPhysicsModule(
         patch_size=patch_size,
         pixel_size=3.45,
@@ -95,7 +104,7 @@ def main():
         theta2_y=3.0
     ).to(device)
 
-    # 2. Chỉ đưa các tham số của mạng UNet vào Optimizer (physics_layer giờ không learnable)
+    # 2. Chỉ đưa các tham số của mạng UNet vào Optimizer (physics_layer không learnable)
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=learning_rate,
@@ -108,12 +117,17 @@ def main():
 
     for ep in range(1, epochs + 1):
         model.train()
-        physics_layer.train()
+        # ĐÃ BỎ: physics_layer.train() vì không cần thiết
         t1 = default_timer()
         total_physics_loss = 0.0
 
-        # SỬA LỖI: Cần unpack đủ biến từ DataLoader thay vì chỉ dùng `for xx in train_loader:`
-        for xx in train_loader:
+        for batch in train_loader:
+            # Xử lý an toàn trường hợp train_loader trả về tuple thay vì tensor đơn lẻ
+            if isinstance(batch, tuple) or isinstance(batch, list):
+                xx = batch[0]
+            else:
+                xx = batch
+                
             xx = xx.to(device)
             xx_norm = xx / torch.mean(xx, dim=(2,3), keepdim=True)
 
@@ -122,7 +136,6 @@ def main():
 
             loss = maeloss(im_x, xx_norm)
 
-            # SỬA LỖI: Bổ sung Backpropagation để mô hình cập nhật trọng số
             optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
@@ -155,7 +168,6 @@ def main():
                     pred_sc = model(xx_norm)
                     pred_ph = torch.atan2(pred_sc[:, 0:1, :, :], pred_sc[:, 1:2, :, :]).squeeze().cpu().numpy()
 
-                    # Đã lược bỏ phần 2D Linear Tilt Subtraction
                     data_range = gt_wrapped.max() - gt_wrapped.min()
                     val_mse += np.mean((pred_ph - gt_wrapped) ** 2)
                     val_ssim += ssim(gt_wrapped, pred_ph, data_range=data_range)
@@ -163,7 +175,7 @@ def main():
             val_mse /= eval_count
             val_ssim /= eval_count
 
-            # 4. Lấy trực tiếp tham số theta từ buffer của physics_layer
+            # Lấy trực tiếp tham số theta từ buffer của physics_layer
             theta1 = physics_layer.theta1.cpu().numpy()
             theta2 = physics_layer.theta2.cpu().numpy()
 
@@ -186,7 +198,7 @@ def main():
             
             torch.save({
                 'model': model.state_dict(),
-                'physics_layer': physics_layer.state_dict(),  # Vẫn save lại để load cho đồng bộ (dù nó không đổi)
+                'physics_layer': physics_layer.state_dict(), 
                 'epoch': ep
             }, 'checkpoints/best_synthetic_model.pth')
 
