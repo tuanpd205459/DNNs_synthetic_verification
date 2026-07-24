@@ -58,7 +58,10 @@ def main():
     learning_rate = 3e-4
     patch_size = 256
 
-    train_dataset = SyntheticHoloDataset(train_dir)
+    train_dataset = SyntheticHoloDataset(
+        train_dir,
+        training=True
+    )
     val_dataset = SyntheticHoloDataset(val_dir) if os.path.exists(val_dir) else None
     test_dataset = SyntheticHoloDataset(test_dir)
 
@@ -118,23 +121,21 @@ def main():
         t1 = default_timer()
         total_physics_loss = 0.0
 
+        # SỬA LỖI: Cần unpack đủ biến từ DataLoader thay vì chỉ dùng `for xx in train_loader:`
         for xx, gt_phase, _, _ in train_loader:
-            xx = xx.to(device)  # [N, 2, H, W]
-            xx_norm = xx / torch.mean(xx, dim=(2, 3), keepdim=True)
+
+            xx = xx.to(device)
+            xx_norm = xx / torch.mean(xx, dim=(2,3), keepdim=True)
 
             pred_sc = model(xx_norm)
-            
-            # Forward physics with fixed reference wavevectors
             im_x = physics_layer(pred_sc)
 
             loss = maeloss(im_x, xx_norm)
 
+            # SỬA LỖI: Bổ sung Backpropagation để mô hình cập nhật trọng số
             optimizer.zero_grad()
             loss.backward()
-            
-            # 3. Chỉ clip gradient cho model
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            
             optimizer.step()
 
             total_physics_loss += loss.item()
