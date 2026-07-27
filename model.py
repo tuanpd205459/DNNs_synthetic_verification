@@ -4,15 +4,19 @@ import torch.nn.functional as F
 
 
 class DoubleConv(nn.Module):
-    """(Convolution => BatchNorm => ReLU) * 2"""
+    """(Conv => GroupNorm => ReLU) * 2
+    GroupNorm is fully FP16-compatible under AMP (unlike BatchNorm2d which
+    forces FP32 internally, breaking the FP16 pipeline).
+    """
     def __init__(self, in_channels, out_channels):
         super().__init__()
+        # num_groups=8: works for any out_channels divisible by 8 (64,128,256,512)
         self.conv = nn.Sequential(
             nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_channels),
+            nn.GroupNorm(num_groups=8, num_channels=out_channels),
             nn.ReLU(inplace=True),
             nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_channels),
+            nn.GroupNorm(num_groups=8, num_channels=out_channels),
             nn.ReLU(inplace=True)
         )
 
@@ -60,9 +64,11 @@ class UNet(nn.Module):
         x = self.conv_up3(torch.cat([self.up3(x), x1], dim=1))
 
         logits = self.outc(x)
-        
-        # Enforce unit normalization on S^1 circle: sin^2(phi) + cos^2(phi) = 1
-        return F.normalize(logits, p=2, dim=1, eps=1e-8)
+
+        # Manual unit-normalization on S^1: sin²+cos²=1
+        # Uses basic arithmetic (stays FP16 under AMP, unlike F.normalize which is FP32-only)
+        norm = torch.sqrt((logits * logits).sum(dim=1, keepdim=True) + 1e-8)
+        return logits / norm
 
 
 # Alias for backward compatibility with PhaseUNet naming in training scripts
