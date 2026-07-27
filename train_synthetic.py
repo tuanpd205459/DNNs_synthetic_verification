@@ -47,7 +47,28 @@ def main():
         import generate_synthetic_data
         generate_synthetic_data.main()
 
-    batch_size = 16   # tăng từ 4→16: giảm 4× số batches/epoch
+    # --- Tự động tìm batch_size tối đa mà GPU chịu được ---
+    def find_max_batch_size(model, physics, start=64, min_bs=8):
+        """Thử từ batch_size lớn xuống nhỏ, dừng khi không OOM."""
+        sample = torch.zeros(start, 2, 256, 256, device=device)
+        for bs in [start, start//2, start//4, min_bs]:
+            try:
+                torch.cuda.empty_cache()
+                x = sample[:bs]
+                with torch.amp.autocast('cuda', enabled=torch.cuda.is_available()):
+                    out = physics(model(x))
+                out.sum().backward()
+                model.zero_grad()
+                torch.cuda.empty_cache()
+                print(f"✅ batch_size={bs} OK "
+                      f"(VRAM used: {torch.cuda.memory_allocated()/1e9:.1f}GB / "
+                      f"{torch.cuda.get_device_properties(0).total_memory/1e9:.1f}GB)")
+                return bs
+            except torch.cuda.OutOfMemoryError:
+                print(f"❌ batch_size={bs} OOM, thử nhỏ hơn...")
+                torch.cuda.empty_cache()
+        return min_bs
+
     epochs = 100
     learning_rate = 3e-4
 
@@ -77,7 +98,7 @@ def main():
 
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
-        batch_size=batch_size,
+        batch_size=8,   # placeholder — akan diganti setelah probe GPU
         shuffle=True,
         num_workers=num_workers,
         pin_memory=torch.cuda.is_available(),
@@ -87,7 +108,7 @@ def main():
 
     val_loader = torch.utils.data.DataLoader(
         val_dataset,
-        batch_size=batch_size,
+        batch_size=8,
         shuffle=False,
         num_workers=num_workers,
         pin_memory=torch.cuda.is_available(),
@@ -127,6 +148,25 @@ def main():
     if torch.cuda.is_available() and hasattr(torch, 'compile'):
         model = torch.compile(model, mode='reduce-overhead')
         print("✅ torch.compile enabled (mode=reduce-overhead)")
+
+    # --- Probe GPU memory để tìm batch_size tối đa ---
+    batch_size = find_max_batch_size(model, physics_layer, start=64, min_bs=8)
+
+    # Tạo lại DataLoader với batch_size tối ưu
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset, batch_size=batch_size, shuffle=True,
+        num_workers=num_workers, pin_memory=torch.cuda.is_available(),
+        persistent_workers=num_workers > 0,
+        prefetch_factor=2 if num_workers > 0 else None
+    )
+    if val_loader is not None:
+        val_loader = torch.utils.data.DataLoader(
+            val_dataset, batch_size=batch_size, shuffle=False,
+            num_workers=num_workers, pin_memory=torch.cuda.is_available(),
+            persistent_workers=num_workers > 0,
+            prefetch_factor=2 if num_workers > 0 else None
+        )
+    print(f"🚀 Final config: batch_size={batch_size}, {len(train_loader)} batches/epoch")
 
     # 2. Chỉ đưa các tham số của mạng UNet vào Optimizer (physics_layer không learnable)
     optimizer = torch.optim.Adam(
