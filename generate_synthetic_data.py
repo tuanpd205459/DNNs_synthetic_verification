@@ -37,7 +37,7 @@ def zernike_eval(n: int, m: int, rho: np.ndarray, phi: np.ndarray) -> np.ndarray
         return R * np.sin(-m * phi)
 def generate_zernike_phase_map(
         shape: tuple[int, int] = (256, 256),
-        max_phase: float = 10 * np.pi,
+        max_phase: float =  np.pi,
         min_active_modes: int = 2,
         max_active_modes: int = 8,
         rng: np.random.Generator | None = None) -> np.ndarray:

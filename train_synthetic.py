@@ -73,26 +73,38 @@ def main():
         patch_size = sample_data.shape[-1]
     print(f"Auto-detected patch_size from dataset: {patch_size}")
 
+    import os
+
+    num_workers = min(8, os.cpu_count())
+
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=0,
-        pin_memory=True if torch.cuda.is_available() else False
+        num_workers=num_workers,
+        pin_memory=torch.cuda.is_available(),
+        persistent_workers=True if num_workers > 0 else False,
+        prefetch_factor=2 if num_workers > 0 else None
     )
 
     val_loader = torch.utils.data.DataLoader(
         val_dataset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=0
+        num_workers=num_workers,
+        pin_memory=torch.cuda.is_available(),
+        persistent_workers=True if num_workers > 0 else False,
+        prefetch_factor=2 if num_workers > 0 else None
     ) if val_dataset is not None else None
 
     test_loader = torch.utils.data.DataLoader(
         test_dataset,
         batch_size=1,
         shuffle=False,
-        num_workers=0
+        num_workers=num_workers,
+        pin_memory=torch.cuda.is_available(),
+        persistent_workers=True if num_workers > 0 else False,
+        prefetch_factor=2 if num_workers > 0 else None
     )
 
     val_count = len(val_dataset) if val_dataset is not None else 0
