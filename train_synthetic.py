@@ -47,7 +47,7 @@ def main():
         import generate_synthetic_data
         generate_synthetic_data.main()
 
-    batch_size = 4
+    batch_size = 16   # tăng từ 4→16: giảm 4× số batches/epoch
     epochs = 100
     learning_rate = 3e-4
 
@@ -133,6 +133,10 @@ def main():
     maeloss = nn.L1Loss()
     os.makedirs('checkpoints', exist_ok=True)
 
+    # AMP: Automatic Mixed Precision — tận dụng Tensor Cores của T4 (FP16)
+    # Thường tăng tốc 2–3× với gần như không giảm accuracy
+    scaler = torch.cuda.amp.GradScaler(enabled=torch.cuda.is_available())
+
     for ep in range(1, epochs + 1):
         model.train()
         t1 = default_timer()
@@ -144,19 +148,23 @@ def main():
                 xx = batch[0]
             else:
                 xx = batch
-                
-            xx = xx.to(device)
 
-            # Truyền trực tiếp xx vào model do đã chuẩn hóa ở dataset
-            pred_sc = model(xx)
-            im_x = physics_layer(pred_sc)
-
-            loss = maeloss(im_x, xx)
+            xx = xx.to(device, non_blocking=True)
 
             optimizer.zero_grad()
-            loss.backward()
+
+            # AMP autocast: tự động dùng FP16 cho các op phù hợp
+            with torch.cuda.amp.autocast(enabled=torch.cuda.is_available()):
+                pred_sc = model(xx)
+                im_x = physics_layer(pred_sc)
+                loss = maeloss(im_x, xx)
+
+            # Scaled backward + optimizer step
+            scaler.scale(loss).backward()
+            scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-            optimizer.step()
+            scaler.step(optimizer)
+            scaler.update()
 
             total_physics_loss += loss.item()
 
