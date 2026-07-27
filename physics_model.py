@@ -14,11 +14,16 @@ class OffAxisPhysicsModule(nn.Module):
     Reference wave:
         fx = pixel_size * sin(theta_x) / wavelength
         fy = pixel_size * sin(theta_y) / wavelength
-
-        R = exp(j*2*pi*(fx*x + fy*y))
+        R  = exp(j * 2*pi * (fx*x + fy*y))
 
     Forward model:
         I = |O + R|^2
+
+    Optimization:
+        Reference waves are precomputed once in __init__ and stored as
+        buffers — they are constant because theta is FIXED (non-learnable).
+        This avoids recomputing exp(j*...) on every forward call, which was
+        the main reason each epoch took 4–5 minutes.
     """
 
     def __init__(
@@ -38,37 +43,42 @@ class OffAxisPhysicsModule(nn.Module):
         self.wl = wavelength
 
         # ------------------------------------------------------------
-        # Coordinate grid (pixel coordinates)
+        # Coordinate grid (pixel coordinates, centred at 0)
         # ------------------------------------------------------------
-        x = np.arange(patch_size, dtype=np.float32) - patch_size / 2.0
-        y = np.arange(patch_size, dtype=np.float32) - patch_size / 2.0
-        XX, YY = np.meshgrid(x, y)
+        x = np.arange(patch_size, dtype=np.float64) - patch_size / 2.0
+        y = np.arange(patch_size, dtype=np.float64) - patch_size / 2.0
+        XX, YY = np.meshgrid(x, y)          # [H, W]
 
-        self.register_buffer("XX", torch.from_numpy(XX))
-        self.register_buffer("YY", torch.from_numpy(YY))
-
-        # ------------------------------------------------------------
-        # Khởi tạo góc cố định (không dùng nn.Parameter)
-        # ------------------------------------------------------------
+        # Store theta as buffers so .to(device) works automatically
         theta1 = torch.tensor([theta1_x, theta1_y], dtype=torch.float32)
         theta2 = torch.tensor([theta2_x, theta2_y], dtype=torch.float32)
-
-        # Đăng ký dưới dạng buffer để model tự quản lý device (CPU/GPU) 
-        # nhưng không tính gradient (không learnable)
         self.register_buffer("theta1", theta1)
         self.register_buffer("theta2", theta2)
 
+        # ------------------------------------------------------------
+        # Precompute reference waves ONCE (theta is fixed → waves are constant)
+        # Avoids repeating exp() on every forward() call → huge speedup
+        # ------------------------------------------------------------
+        def _make_ref(theta_x_deg, theta_y_deg):
+            fx = pixel_size * np.sin(np.deg2rad(theta_x_deg)) / wavelength
+            fy = pixel_size * np.sin(np.deg2rad(theta_y_deg)) / wavelength
+            phase = 2.0 * np.pi * (fx * XX + fy * YY)          # [H, W]
+            wave = np.exp(1j * phase).astype(np.complex64)      # [H, W]
+            # Split into real/imag because PyTorch buffers support complex64
+            return torch.from_numpy(wave)
+
+        self.register_buffer("ref1", _make_ref(theta1_x, theta1_y))  # [H, W] complex64
+        self.register_buffer("ref2", _make_ref(theta2_x, theta2_y))  # [H, W] complex64
+
     # -----------------------------------------------------------------
-    # Convert angle -> spatial frequency
+    # Convert stored angle buffers → spatial frequencies (for logging)
     # -----------------------------------------------------------------
     def get_frequencies(self):
-        # Chuyển đổi trực tiếp từ buffer độ sang radian
         theta1_rad = torch.deg2rad(self.theta1)
         theta2_rad = torch.deg2rad(self.theta2)
 
         fx1 = self.pixel_size * torch.sin(theta1_rad[0]) / self.wl
         fy1 = self.pixel_size * torch.sin(theta1_rad[1]) / self.wl
-
         fx2 = self.pixel_size * torch.sin(theta2_rad[0]) / self.wl
         fy2 = self.pixel_size * torch.sin(theta2_rad[1]) / self.wl
 
@@ -80,45 +90,25 @@ class OffAxisPhysicsModule(nn.Module):
     def forward(self, pred_sc):
         """
         pred_sc: [N, 2, H, W]
-
             channel 0 : sin(phi)
             channel 1 : cos(phi)
 
-        return:
-            simulated holograms
-            [N,2,H,W]
+        return: simulated holograms [N, 2, H, W]
         """
+        sin_phi = pred_sc[:, 0:1]   # [N, 1, H, W]
+        cos_phi = pred_sc[:, 1:2]   # [N, 1, H, W]
 
-
-        sin_phi = pred_sc[:, 0:1]
-        cos_phi = pred_sc[:, 1:2]
-
-        # Unit normalization
-        norm = torch.sqrt(cos_phi**2 + sin_phi**2 + 1e-8)
+        # Enforce unit normalization on S^1 circle
+        norm = torch.sqrt(cos_phi ** 2 + sin_phi ** 2 + 1e-8)
         cos_phi = cos_phi / norm
         sin_phi = sin_phi / norm
 
-        # Complex object field
-        object_field = (cos_phi + 1j * sin_phi).squeeze(1)
-        # Complex object field
+        # Complex object field [N, H, W]
         object_field = (cos_phi + 1j * sin_phi).squeeze(1)
 
-        # Fixed reference frequencies
-        fx1, fy1, fx2, fy2 = self.get_frequencies()
+        # Use precomputed reference waves (broadcast over batch dim)
+        # ref1, ref2 shape: [H, W] → broadcasts to [N, H, W]
+        H1 = torch.abs(object_field + self.ref1) ** 2   # [N, H, W]
+        H2 = torch.abs(object_field + self.ref2) ** 2   # [N, H, W]
 
-        # Reference waves
-        ref1 = torch.exp(
-            1j * 2.0 * np.pi *
-            (fx1 * self.XX + fy1 * self.YY)
-        )
-
-        ref2 = torch.exp(
-            1j * 2.0 * np.pi *
-            (fx2 * self.XX + fy2 * self.YY)
-        )
-
-        # Simulated holograms
-        H1 = torch.abs(object_field + ref1) ** 2
-        H2 = torch.abs(object_field + ref2) ** 2
-
-        return torch.stack([H1, H2], dim=1)
+        return torch.stack([H1, H2], dim=1)              # [N, 2, H, W]
