@@ -73,8 +73,6 @@ def main():
         patch_size = sample_data.shape[-1]
     print(f"Auto-detected patch_size from dataset: {patch_size}")
 
-    import os
-
     num_workers = min(8, os.cpu_count())
 
     train_loader = torch.utils.data.DataLoader(
