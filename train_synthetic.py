@@ -128,7 +128,7 @@ def main():
 
     val_count = len(val_dataset) if val_dataset is not None else 0
     print(f"Loaded {len(train_dataset)} train samples, {val_count} val samples, {len(test_dataset)} test samples.")
-    print(f"Config: batch_size={batch_size}, epochs={epochs}, lr={learning_rate}")
+    print(f"Config: epochs={epochs}, lr={learning_rate} | batch_size: auto-detecting...")
 
     model = PhaseUNet(in_channels=2, out_channels=2).to(device)
     
