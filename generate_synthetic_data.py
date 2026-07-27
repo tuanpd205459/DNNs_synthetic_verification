@@ -146,9 +146,9 @@ def main() -> None:
     """
     out_dir = Path("data_synth")
     splits = [
-        ("train", 200, 0),
-        ("val",   10, 100_000),
-        ("test",  10, 200_000),
+        ("train", 5000, 0),
+        ("val",   500, 100_000),
+        ("test",  500, 200_000),
     ]
     for mode, _, _ in splits:
         (out_dir / mode).mkdir(parents=True, exist_ok=True)
