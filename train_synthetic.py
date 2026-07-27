@@ -122,6 +122,12 @@ def main():
         theta2_y=3.0
     ).to(device)
 
+    # torch.compile: fuses kernels, tối ưu graph → tăng thêm ~20–30% tốc độ
+    # (PyTorch 2.0+, chỉ dùng khi có GPU)
+    if torch.cuda.is_available() and hasattr(torch, 'compile'):
+        model = torch.compile(model, mode='reduce-overhead')
+        print("✅ torch.compile enabled (mode=reduce-overhead)")
+
     # 2. Chỉ đưa các tham số của mạng UNet vào Optimizer (physics_layer không learnable)
     optimizer = torch.optim.Adam(
         model.parameters(),
@@ -135,7 +141,8 @@ def main():
 
     # AMP: Automatic Mixed Precision — tận dụng Tensor Cores của T4 (FP16)
     # Thường tăng tốc 2–3× với gần như không giảm accuracy
-    scaler = torch.cuda.amp.GradScaler(enabled=torch.cuda.is_available())
+    use_amp = torch.cuda.is_available()
+    scaler = torch.amp.GradScaler('cuda', enabled=use_amp)
 
     for ep in range(1, epochs + 1):
         model.train()
@@ -154,7 +161,7 @@ def main():
             optimizer.zero_grad()
 
             # AMP autocast: tự động dùng FP16 cho các op phù hợp
-            with torch.cuda.amp.autocast(enabled=torch.cuda.is_available()):
+            with torch.amp.autocast('cuda', enabled=use_amp):
                 pred_sc = model(xx)
                 im_x = physics_layer(pred_sc)
                 loss = maeloss(im_x, xx)
