@@ -28,7 +28,7 @@ def zernike_eval(n: int, m: int, rho: np.ndarray, phi: np.ndarray) -> np.ndarray
          np.vectorize(math.factorial)(n - k) /
          (np.vectorize(math.factorial)(k) *
           np.vectorize(math.factorial)((n + abs(m)) // 2 - k) *
-          np.vectorise(math.factorial)((n - abs(m)) // 2 - k)))
+          np.vectorize(math.factorial)((n - abs(m)) // 2 - k)))
     # Broadcast c over the rho grid
     R = (c[:, None, None] * rho ** (n - 2 * k[:, None, None])).sum(axis=0)
     if m >= 0:
@@ -39,7 +39,8 @@ def generate_zernike_phase_map(
         shape: tuple[int, int] = (256, 256),
         max_phase: float = 10 * np.pi,
         min_active_modes: int = 2,
-        max_active_modes: int = 8) -> np.ndarray:
+        max_active_modes: int = 8,
+        rng: np.random.Generator | None = None) -> np.ndarray:
     """Create a random phase map built from a subset of Zernike modes.
     Parameters
     ----------
@@ -49,6 +50,9 @@ def generate_zernike_phase_map(
         Maximum phase value after normalisation (radians).
     min_active_modes, max_active_modes : int
         Range of how many Zernike modes are randomly activated.
+    rng : np.random.Generator, optional
+        A seeded Generator for reproducibility. If None, a fresh unseeded one
+        is created (useful for interactive use).
     Returns
     -------
     np.ndarray (float32)
@@ -70,7 +74,8 @@ def generate_zernike_phase_map(
         (5, -5), (5, -3), (5, -1),
         (5, 1), (5, 3), (5, 5)
     ]
-    rng = np.random.default_rng()
+    if rng is None:
+        rng = np.random.default_rng()
     n_active = rng.integers(min_active_modes, max_active_modes + 1)
     # Guard against requesting more active modes than available
     n_active = min(n_active, len(z_modes))
@@ -110,10 +115,10 @@ def simulate_offaxis_holograms(
         Intensity holograms for the two reference angles.
     """
     H, W = phase_map.shape
-    # Use ogrid to avoid allocating a full meshgrid twice.
-    y = np.arange(H, dtype=np.float32) - H / 2.0
-    x = np.arange(W, dtype=np.float32) - W / 2.0
+    # Use ogrid to avoid allocating full meshgrid arrays.
     YY, XX = np.ogrid[:H, :W]
+    YY = YY.astype(np.float32) - H / 2.0
+    XX = XX.astype(np.float32) - W / 2.0
     def _reference_beam(theta):
         thx, thy = theta
         fx = pixel_size * np.sin(np.deg2rad(thx)) / wavelength
@@ -148,12 +153,13 @@ def main() -> None:
     for mode, _, _ in splits:
         (out_dir / mode).mkdir(parents=True, exist_ok=True)
     print("Generating synthetic dataset with FIXED reference beam angles...")
-    rng = np.random.default_rng()
     for mode, count, seed_offset in splits:
         for idx in tqdm(range(count), desc=mode.capitalize()):
-            # Seed is deterministic per sample for reproducibility
-            rng.seed(seed_offset + idx)
-            gt_phase = generate_zernike_phase_map(shape=(256, 256), max_phase=10 * np.pi)
+            # Fresh seeded RNG per sample → fully reproducible
+            sample_rng = np.random.default_rng(seed_offset + idx)
+            gt_phase = generate_zernike_phase_map(
+                shape=(256, 256), max_phase=10 * np.pi, rng=sample_rng
+            )
             H1, H2 = simulate_offaxis_holograms(gt_phase)
             sample_dir = out_dir / mode / f"sample_{idx:05d}"
             sample_dir.mkdir(parents=True, exist_ok=True)
