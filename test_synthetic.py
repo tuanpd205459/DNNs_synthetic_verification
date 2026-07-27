@@ -71,7 +71,7 @@ def main():
 
             xx = xx.to(device)
 
-            sample_id = sample_name[0]
+            sample_id = sample_name
 
             ##################################################
             # Ground Truth
@@ -84,16 +84,7 @@ def main():
             # Prediction
             ##################################################
 
-            # Thêm epsilon để tránh lỗi chia cho 0 trong chuẩn hóa
-            eps = 1e-8
-            mean_val = torch.mean(
-                xx,
-                dim=(2, 3),
-                keepdim=True
-            )
-            xx_norm = xx / (mean_val + eps)
-
-            pred_sc = model(xx_norm)
+            pred_sc = model(xx)
 
             pred_wrapped = torch.atan2(
                 pred_sc[:, 0:1],

@@ -89,9 +89,17 @@ class OffAxisPhysicsModule(nn.Module):
             [N,2,H,W]
         """
 
+
         sin_phi = pred_sc[:, 0:1]
         cos_phi = pred_sc[:, 1:2]
 
+        # Unit normalization
+        norm = torch.sqrt(cos_phi**2 + sin_phi**2 + 1e-8)
+        cos_phi = cos_phi / norm
+        sin_phi = sin_phi / norm
+
+        # Complex object field
+        object_field = (cos_phi + 1j * sin_phi).squeeze(1)
         # Complex object field
         object_field = (cos_phi + 1j * sin_phi).squeeze(1)
 

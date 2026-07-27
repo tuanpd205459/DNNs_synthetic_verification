@@ -19,6 +19,14 @@ from dataset import SyntheticHoloDataset
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+def tv_loss(inputs):
+    # inputs: [N, C, H, W]
+    n, c, h, w = inputs.shape
+    grad_x = inputs[:,:,1:,:] - inputs[:,:,:-1,:]
+    grad_y = inputs[:,:,:,1:] - inputs[:,:,:,:-1]
+    tv = (grad_x.abs().sum() + grad_y.abs().sum()) / (n*c*h*w)
+    return tv
+
 
 def main():
     print(f"======================================================")
@@ -55,7 +63,7 @@ def main():
     val_dataset = SyntheticHoloDataset(val_dir) if os.path.exists(val_dir) else None
     
     # ---------------------------------------------------------
-    # SỬA LỖI: Tự động trích xuất patch_size từ tập dữ liệu thay vì hardcode
+    # Tự động trích xuất patch_size từ tập dữ liệu thay vì hardcode
     # ---------------------------------------------------------
     sample_data = train_dataset[0]
     # Kiểm tra xem dataset trả về tuple hay tensor trực tiếp
@@ -117,7 +125,6 @@ def main():
 
     for ep in range(1, epochs + 1):
         model.train()
-        # ĐÃ BỎ: physics_layer.train() vì không cần thiết
         t1 = default_timer()
         total_physics_loss = 0.0
 
@@ -129,12 +136,12 @@ def main():
                 xx = batch
                 
             xx = xx.to(device)
-            xx_norm = xx / torch.mean(xx, dim=(2,3), keepdim=True)
 
-            pred_sc = model(xx_norm)
+            # Truyền trực tiếp xx vào model do đã chuẩn hóa ở dataset
+            pred_sc = model(xx)
             im_x = physics_layer(pred_sc)
 
-            loss = maeloss(im_x, xx_norm)
+            loss = maeloss(im_x, xx)
 
             optimizer.zero_grad()
             loss.backward()
@@ -164,14 +171,14 @@ def main():
                     gt = gt_phase.squeeze().cpu().numpy()
                     gt_wrapped = np.angle(np.exp(1j * gt))
 
-                    xx_norm = xx / torch.mean(xx, dim=(2, 3), keepdim=True)
-                    pred_sc = model(xx_norm)
+                    # Truyền trực tiếp xx vào model
+                    pred_sc = model(xx)
                     pred_ph = torch.atan2(pred_sc[:, 0:1, :, :], pred_sc[:, 1:2, :, :]).squeeze().cpu().numpy()
 
                     data_range = gt_wrapped.max() - gt_wrapped.min()
-                    val_mse += np.mean((pred_ph - gt_wrapped) ** 2)
                     val_ssim += ssim(gt_wrapped, pred_ph, data_range=data_range)
-                    
+                    diff = np.angle(np.exp(1j * (pred_ph - gt_wrapped)))
+                    val_mse += np.mean(diff ** 2)
             val_mse /= eval_count
             val_ssim /= eval_count
 
