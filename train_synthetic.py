@@ -143,11 +143,10 @@ def main():
         theta2_y=3.0
     ).to(device)
 
-    # torch.compile: fuses kernels, tối ưu graph → tăng thêm ~20–30% tốc độ
-    # (PyTorch 2.0+, chỉ dùng khi có GPU)
-    if torch.cuda.is_available() and hasattr(torch, 'compile'):
-        model = torch.compile(model, mode='reduce-overhead')
-        print("✅ torch.compile enabled (mode=reduce-overhead)")
+    # torch.compile disabled: T4 GPU không đủ SMs cho mode này
+    # ("Not enough SMs to use max_autotune_gemm mode") → gây chậm thay vì tăng tốc
+    # if torch.cuda.is_available() and hasattr(torch, 'compile'):
+    #     model = torch.compile(model, mode='reduce-overhead')
 
     # --- Probe GPU memory để tìm batch_size tối đa ---
     batch_size = find_max_batch_size(model, physics_layer, start=64, min_bs=8)
