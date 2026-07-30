@@ -112,29 +112,34 @@ def simulate_offaxis_holograms(
     phase,
     wavelength=0.6328,
     pixel_size=3.45,
-    theta1=(1.5, 1.5),
-    theta2=(3.0, 3.0)
+    theta1=(2.0, 2.0),
+    theta2=(5.0, 5.0)
 ):
+    """
+    Simulate two off-axis holograms.
+
+    IMPORTANT – must match physics_model.py exactly:
+      fx = pixel_size * sin(theta) / wavelength
+      phi_ref(x, y) = 2π * (fx * X_pix + fy * Y_pix)
+    where X_pix/Y_pix are pixel-index coords centred at 0
+    (NOT physical coords in µm). Multiplying by pixel_size is
+    already folded into fx/fy, so we never multiply coords again.
+    """
     H, W = phase.shape
 
-    # Tối ưu hóa tính toán tọa độ bằng ogrid tương tự logic bạn đưa ra
+    # Pixel-index coords centred at 0  (matches physics_model.py)
     YY, XX = np.ogrid[:H, :W]
     YY = YY.astype(np.float32) - H / 2.0
     XX = XX.astype(np.float32) - W / 2.0
 
-    x_phys = XX * pixel_size
-    y_phys = YY * pixel_size
-
     U = np.exp(1j * phase)
 
     def reference(theta):
-        tx, ty = np.deg2rad(theta)
-        fx = np.sin(tx) / wavelength
-        fy = np.sin(ty) / wavelength
-
-        return np.exp(
-            1j * 2 * np.pi * (fx * x_phys + fy * y_phys)
-        )
+        thx, thy = theta
+        # pixel_size folded into spatial frequency (same as physics_model.py)
+        fx = pixel_size * np.sin(np.deg2rad(thx)) / wavelength
+        fy = pixel_size * np.sin(np.deg2rad(thy)) / wavelength
+        return np.exp(1j * 2 * np.pi * (fx * XX + fy * YY))
 
     R1 = reference(theta1)
     R2 = reference(theta2)

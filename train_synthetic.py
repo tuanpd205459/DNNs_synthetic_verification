@@ -139,8 +139,8 @@ def main():
         wavelength=0.6328,
         theta1_x=2.0,
         theta1_y=2.0,
-        theta2_x=3.0,
-        theta2_y=3.0
+        theta2_x=5.0,
+        theta2_y=5.0
     ).to(device)
 
     # torch.compile disabled: T4 GPU không đủ SMs cho mode này
