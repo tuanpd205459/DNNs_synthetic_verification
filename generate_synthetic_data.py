@@ -1,177 +1,211 @@
 import os
-import math
 import numpy as np
 from pathlib import Path
 import PIL.Image
 from tqdm import tqdm
-# Optional: if you have scipy installed, you can use a more efficient Zernike implementation.
-# from scipy.special import factorial
-def zernike_eval(n: int, m: int, rho: np.ndarray, phi: np.ndarray) -> np.ndarray:
-    """Evaluate Zernike polynomial Z_n^m(rho, phi).
-    Parameters
-    ----------
-    n, m : int
-        Radial and azimuthal orders (|m| <= n, n‑|m| even).
-    rho, phi : np.ndarray
-        Polar coordinates normalized to the unit circle.
-    Returns
-    -------
-    np.ndarray
-        The Zernike mode evaluated on the supplied grid.
+
+def zernike_mode(j, rho, phi):
     """
-    if (n - abs(m)) % 2 != 0:
-        return np.zeros_like(rho)
-    # Vectorised computation of the radial polynomial R_n^m
-    k = np.arange((n - abs(m)) // 2 + 1)
-    # Using math.factorial for integer factorials – fast enough for n <= 5
-    c = ((-1) ** k *
-         np.vectorize(math.factorial)(n - k) /
-         (np.vectorize(math.factorial)(k) *
-          np.vectorize(math.factorial)((n + abs(m)) // 2 - k) *
-          np.vectorize(math.factorial)((n - abs(m)) // 2 - k)))
-    # Broadcast c over the rho grid
-    R = (c[:, None, None] * rho ** (n - 2 * k[:, None, None])).sum(axis=0)
-    if m >= 0:
-        return R * np.cos(m * phi)
-    else:
-        return R * np.sin(-m * phi)
+    Zernike polynomials (Noll indexing) - Non-normalized
+    j = 1 ... 21
+    rho : normalized radius [0,1]
+    phi : angle (rad)
+    """
+    Z = np.zeros_like(rho)
+
+    if j == 1:
+        Z = np.ones_like(rho)
+    elif j == 2:
+        Z = rho * np.cos(phi)
+    elif j == 3:
+        Z = rho * np.sin(phi)
+    elif j == 4:
+        Z = (2 * rho**2 - 1)
+    elif j == 5:
+        Z = rho**2 * np.sin(2 * phi)
+    elif j == 6:
+        Z = rho**2 * np.cos(2 * phi)
+    elif j == 7:
+        Z = (3 * rho**3 - 2 * rho) * np.sin(phi)
+    elif j == 8:
+        Z = (3 * rho**3 - 2 * rho) * np.cos(phi)
+    elif j == 9:
+        Z = rho**3 * np.sin(3 * phi)
+    elif j == 10:
+        Z = rho**3 * np.cos(3 * phi)
+    elif j == 11:
+        Z = (6 * rho**4 - 6 * rho**2 + 1)
+    elif j == 12:
+        Z = (4 * rho**4 - 3 * rho**2) * np.cos(2 * phi)
+    elif j == 13:
+        Z = (4 * rho**4 - 3 * rho**2) * np.sin(2 * phi)
+    elif j == 14:
+        Z = rho**4 * np.cos(4 * phi)
+    elif j == 15:
+        Z = rho**4 * np.sin(4 * phi)
+    elif j == 16:
+        Z = (10 * rho**5 - 12 * rho**3 + 3 * rho) * np.cos(phi)
+    elif j == 17:
+        Z = (10 * rho**5 - 12 * rho**3 + 3 * rho) * np.sin(phi)
+    elif j == 18:
+        Z = (5 * rho**5 - 4 * rho**3) * np.cos(3 * phi)
+    elif j == 19:
+        Z = (5 * rho**5 - 4 * rho**3) * np.sin(3 * phi)
+    elif j == 20:
+        Z = rho**5 * np.cos(5 * phi)
+    elif j == 21:
+        Z = rho**5 * np.sin(5 * phi)
+
+    return Z
+
+
 def generate_zernike_phase_map(
-        shape: tuple[int, int] = (256, 256),
-        max_phase: float =  np.pi,
-        min_active_modes: int = 2,
-        max_active_modes: int = 8,
-        rng: np.random.Generator | None = None) -> np.ndarray:
-    """Create a random phase map built from a subset of Zernike modes.
-    Parameters
-    ----------
-    shape : tuple[int, int]
-        Output image size (height, width).
-    max_phase : float
-        Maximum phase value after normalisation (radians).
-    min_active_modes, max_active_modes : int
-        Range of how many Zernike modes are randomly activated.
-    rng : np.random.Generator, optional
-        A seeded Generator for reproducibility. If None, a fresh unseeded one
-        is created (useful for interactive use).
-    Returns
-    -------
-    np.ndarray (float32)
-        Normalised phase map with values in ``[0, max_phase]``.
-    """
-    H, W = shape
-    y = np.linspace(-1, 1, H)
-    x = np.linspace(-1, 1, W)
-    XX, YY = np.meshgrid(x, y)
-    rho = np.sqrt(XX ** 2 + YY ** 2)
-    phi = np.arctan2(YY, XX)
-    # First 21 Zernike modes (n <= 5)
-    z_modes = [
-        (0, 0),
-        (1, -1), (1, 1),
-        (2, -2), (2, 0), (2, 2),
-        (3, -3), (3, -1), (3, 1), (3, 3),
-        (4, -4), (4, -2), (4, 0), (4, 2), (4, 4),
-        (5, -5), (5, -3), (5, -1),
-        (5, 1), (5, 3), (5, 5)
-    ]
+    shape=(256, 256),
+    max_phase=10 * np.pi,
+    min_modes=2,
+    max_modes=8,
+    rng=None
+):
     if rng is None:
         rng = np.random.default_rng()
-    n_active = rng.integers(min_active_modes, max_active_modes + 1)
-    # Guard against requesting more active modes than available
-    n_active = min(n_active, len(z_modes))
-    active_idx = rng.choice(len(z_modes), size=n_active, replace=False)
-    coeffs = np.zeros(len(z_modes))
-    coeffs[active_idx] = rng.uniform(-5.0, 5.0, n_active)
+
+    H, W = shape
+
+    y = np.linspace(-1, 1, H)
+    x = np.linspace(-1, 1, W)
+
+    X, Y = np.meshgrid(x, y)
+
+    rho = np.sqrt(X**2 + Y**2)
+    phi = np.arctan2(Y, X)
+
+    mask = rho <= 1
+
     phase = np.zeros_like(rho)
-    for coeff, (n, m) in zip(coeffs, z_modes):
-        if coeff != 0:
-            phase += coeff * zernike_eval(n, m, rho, phi)
-    # Normalise to [0, max_phase]
+
+    n_modes = rng.integers(min_modes, max_modes + 1)
+
+    modes = rng.choice(
+        np.arange(2, 22),
+        size=n_modes,
+        replace=False
+    )
+
+    coeff = rng.uniform(-1, 1, n_modes)
+
+    for c, j in zip(coeff, modes):
+        phase += c * zernike_mode(j, rho, phi)
+
+    phase *= mask
     phase -= phase.min()
+
     if phase.max() > 0:
         phase /= phase.max()
+
     phase *= max_phase
+
     return phase.astype(np.float32)
+
+
 def simulate_offaxis_holograms(
-        phase_map: np.ndarray,
-        wavelength: float = 0.6328,
-        pixel_size: float = 3.45,
-        theta1: tuple[float, float] = (2.0, 2.0),
-        theta2: tuple[float, float] = (3.0, 3.0)) -> tuple[np.ndarray, np.ndarray]:
-    """Simulate two off‑axis holograms with fixed reference beam angles.
-    Parameters
-    ----------
-    phase_map : np.ndarray
-        Phase map (radians) to be encoded.
-    wavelength : float
-        Illumination wavelength (micrometres).
-    pixel_size : float
-        Sensor pixel size (micrometres).
-    theta1, theta2 : tuple[float, float]
-        Angles (degrees) for the two reference beams (theta_x, theta_y).
-    Returns
-    -------
-    (H1, H2) : tuple[np.ndarray, np.ndarray]
-        Intensity holograms for the two reference angles.
-    """
-    H, W = phase_map.shape
-    # Use ogrid to avoid allocating full meshgrid arrays.
+    phase,
+    wavelength=0.6328,
+    pixel_size=3.45,
+    theta1=(2.0, 2.0),
+    theta2=(3.0, 3.0)
+):
+    H, W = phase.shape
+
+    # Tối ưu hóa tính toán tọa độ bằng ogrid tương tự logic bạn đưa ra
     YY, XX = np.ogrid[:H, :W]
     YY = YY.astype(np.float32) - H / 2.0
     XX = XX.astype(np.float32) - W / 2.0
-    def _reference_beam(theta):
-        thx, thy = theta
-        fx = pixel_size * np.sin(np.deg2rad(thx)) / wavelength
-        fy = pixel_size * np.sin(np.deg2rad(thy)) / wavelength
-        return np.exp(1j * 2 * np.pi * (fx * XX + fy * YY))
-    R1 = _reference_beam(theta1)
-    R2 = _reference_beam(theta2)
-    U = np.exp(1j * phase_map)
-    H1 = np.abs(U + R1) ** 2
-    H2 = np.abs(U + R2) ** 2
+
+    x_phys = XX * pixel_size
+    y_phys = YY * pixel_size
+
+    U = np.exp(1j * phase)
+
+    def reference(theta):
+        tx, ty = np.deg2rad(theta)
+        fx = np.sin(tx) / wavelength
+        fy = np.sin(ty) / wavelength
+
+        return np.exp(
+            1j * 2 * np.pi * (fx * x_phys + fy * y_phys)
+        )
+
+    R1 = reference(theta1)
+    R2 = reference(theta2)
+
+    H1 = np.abs(U + R1)**2
+    H2 = np.abs(U + R2)**2
+
     return H1.astype(np.float32), H2.astype(np.float32)
+
+
 def main() -> None:
-    """Generate a synthetic dataset of phase maps and their off‑axis holograms.
+    """Generate a synthetic dataset of phase maps and their off-axis holograms.
     The data layout is::
         data_synth/
             train/   sample_00000/ ...
             val/     sample_00000/ ...
             test/    sample_00000/ ...
     Each ``sample_xxxxx`` folder contains:
-        - ``gt_phase.npy``        : ground‑truth phase (float32)
-        - ``hologram1.npy``       : hologram with reference angle 1
-        - ``hologram2.npy``       : hologram with reference angle 2
+        - ``data.npz``           : compressed arrays of gt_phase, hologram1, hologram2
         - ``gt_phase.png`` / ``hologram1.png`` / ``hologram2.png``
-          for quick visual inspection (8‑bit PNG).
+          for quick visual inspection (8-bit PNG).
     """
     out_dir = Path("data_synth")
     splits = [
         ("train", 5000, 0),
-        ("val",   500, 100_000),
-        ("test",  500, 200_000),
+        ("val",   100, 100_000),
+        ("test",  100, 200_000),
     ]
+
     for mode, _, _ in splits:
         (out_dir / mode).mkdir(parents=True, exist_ok=True)
+
     print("Generating synthetic dataset with FIXED reference beam angles...")
+
     for mode, count, seed_offset in splits:
         for idx in tqdm(range(count), desc=mode.capitalize()):
             # Fresh seeded RNG per sample → fully reproducible
             sample_rng = np.random.default_rng(seed_offset + idx)
+            
+            # Sinh phase map với Zernike
             gt_phase = generate_zernike_phase_map(
-                shape=(256, 256), max_phase=10 * np.pi, rng=sample_rng
+                shape=(256, 256), 
+                max_phase=10 * np.pi, 
+                min_modes=2,
+                max_modes=8,
+                rng=sample_rng
             )
+            
+            # Sinh Hologram 1 & 2
             H1, H2 = simulate_offaxis_holograms(gt_phase)
+            
+            # Tạo thư mục mẫu
             sample_dir = out_dir / mode / f"sample_{idx:05d}"
             sample_dir.mkdir(parents=True, exist_ok=True)
+            
             # Save raw arrays – npz keeps them together and compresses them.
             np.savez_compressed(sample_dir / "data.npz",
                                 gt_phase=gt_phase,
                                 hologram1=H1,
                                 hologram2=H2)
-            # Also save PNGs for quick visual checks (optional).
+            
+            # Also save PNGs for quick visual checks.
             for arr, name in [(gt_phase, "gt_phase"), (H1, "hologram1"), (H2, "hologram2")]:
-                img = (arr / arr.max() * 255).astype(np.uint8)
+                max_val = arr.max()
+                if max_val > 0:
+                    img = (arr / max_val * 255).astype(np.uint8)
+                else:
+                    img = np.zeros_like(arr, dtype=np.uint8)
+                    
                 PIL.Image.fromarray(img).save(sample_dir / f"{name}.png")
+
     print(f"✅ Generated synthetic dataset at '{out_dir}/'")
+
 if __name__ == "__main__":
     main()
