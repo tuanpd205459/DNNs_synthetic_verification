@@ -1,4 +1,4 @@
-import os
+.import os
 import numpy as np
 from pathlib import Path
 import PIL.Image
@@ -61,7 +61,7 @@ def zernike_mode(j, rho, phi):
 
 def generate_zernike_phase_map(
     shape=(256, 256),
-    max_phase=10 * np.pi,
+    max_phase=4 * np.pi,
     min_modes=2,
     max_modes=8,
     rng=None
@@ -96,8 +96,6 @@ def generate_zernike_phase_map(
     for c, j in zip(coeff, modes):
         phase += c * zernike_mode(j, rho, phi)
 
-    phase *= mask
-    phase -= phase.min()
 
     if phase.max() > 0:
         phase /= phase.max()
@@ -111,7 +109,7 @@ def simulate_offaxis_holograms(
     phase,
     wavelength=0.6328,
     pixel_size=3.45,
-    theta1=(2.0, 2.0),
+    theta1=(1.5, 1.5),
     theta2=(3.0, 3.0)
 ):
     H, W = phase.shape
