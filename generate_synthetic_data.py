@@ -201,9 +201,9 @@ def main() -> None:
     """
     out_dir = Path("data_synth")
     splits = [
-        ("train", 5000, 0),
-        ("val",   100, 100_000),
-        ("test",  100, 200_000),
+        ("train", 2000, 0),
+        ("val",   20, 100_000),
+        ("test",  20, 200_000),
     ]
 
     for mode, _, _ in splits:
