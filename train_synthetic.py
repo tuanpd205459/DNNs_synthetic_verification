@@ -132,15 +132,18 @@ def main():
 
     model = PhaseUNet(in_channels=2, out_channels=2).to(device)
     
-    # 1. Khởi tạo physics_layer với các góc cố định và patch_size động
+    # Tần số tham chiếu (cycles/pixel) — phải khớp với generate_synthetic_data.py
+    # Dùng angles_to_freq() nếu muốn nhập bằng góc:
+    #   from generate_synthetic_data import angles_to_freq
+    #   F1 = angles_to_freq(2.0, 2.0)  # → ~(0.190, 0.190)
+    #   F2 = angles_to_freq(5.0, 5.0)  # → ~(0.475, 0.475)
+    F1 = (0.190, 0.190)   # ~2.0° — cycles/pixel
+    F2 = (0.475, 0.475)   # ~5.0° — cycles/pixel
+
     physics_layer = OffAxisPhysicsModule(
         patch_size=patch_size,
-        pixel_size=3.45,
-        wavelength=0.6328,
-        theta1_x=2.0,
-        theta1_y=2.0,
-        theta2_x=5.0,
-        theta2_y=5.0
+        f1=F1,
+        f2=F2,
     ).to(device)
 
     # torch.compile disabled: T4 GPU không đủ SMs cho mode này
@@ -246,24 +249,15 @@ def main():
             val_mse /= eval_count
             val_ssim /= eval_count
 
-            # Lấy trực tiếp tham số theta từ buffer của physics_layer
-            theta1 = physics_layer.theta1.cpu().numpy()
-            theta2 = physics_layer.theta2.cpu().numpy()
-
-            fx1, fy1, fx2, fy2 = physics_layer.get_frequencies()
-
-            fx1 = fx1.item()
-            fy1 = fy1.item()
-            fx2 = fx2.item()
-            fy2 = fy2.item()
+            # Đọc tần số trực tiếp từ buffer
+            f1_log = physics_layer.f1.cpu().numpy()
+            f2_log = physics_layer.f2.cpu().numpy()
 
             print(
                 f" | SSIM: {val_ssim:.4f}"
                 f" | MSE: {val_mse:.6f}"
-                f" | Theta1=({theta1[0]:.3f}°, {theta1[1]:.3f}°)"
-                f" | Theta2=({theta2[0]:.3f}°, {theta2[1]:.3f}°)"
-                f" | f1=({fx1:.4f}, {fy1:.4f})"
-                f" | f2=({fx2:.4f}, {fy2:.4f})",
+                f" | f1=({f1_log[0]:.4f}, {f1_log[1]:.4f}) cyc/px"
+                f" | f2=({f2_log[0]:.4f}, {f2_log[1]:.4f}) cyc/px",
                 end=''
             )
             

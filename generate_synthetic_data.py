@@ -108,44 +108,81 @@ def generate_zernike_phase_map(
     return phase.astype(np.float32)
 
 
-def simulate_offaxis_holograms(
-    phase,
-    wavelength=0.6328,
-    pixel_size=3.45,
-    theta1=(2.0, 2.0),
-    theta2=(5.0, 5.0)
-):
-    """
-    Simulate two off-axis holograms.
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
-    IMPORTANT – must match physics_model.py exactly:
-      fx = pixel_size * sin(theta) / wavelength
-      phi_ref(x, y) = 2π * (fx * X_pix + fy * Y_pix)
-    where X_pix/Y_pix are pixel-index coords centred at 0
-    (NOT physical coords in µm). Multiplying by pixel_size is
-    already folded into fx/fy, so we never multiply coords again.
+def angles_to_freq(
+    theta_x_deg: float,
+    theta_y_deg: float,
+    pixel_size: float = 3.45,
+    wavelength: float = 0.6328
+) -> tuple:
+    """
+    Convert reference-beam angles to spatial frequencies (cycles/pixel).
+
+    Parameters
+    ----------
+    theta_x_deg, theta_y_deg : float
+        Beam tilt angles in degrees.
+    pixel_size : float
+        Sensor pixel pitch in µm (default 3.45 µm).
+    wavelength : float
+        Illumination wavelength in µm (default 0.6328 µm for HeNe).
+
+    Returns
+    -------
+    (fx, fy) : tuple of float  — cycles per pixel
+    """
+    fx = pixel_size * np.sin(np.deg2rad(theta_x_deg)) / wavelength
+    fy = pixel_size * np.sin(np.deg2rad(theta_y_deg)) / wavelength
+    return fx, fy
+
+
+def simulate_offaxis_holograms(
+    phase: np.ndarray,
+    f1: tuple = (0.15, 0.15),
+    f2: tuple = (0.05, 0.05),
+) -> tuple:
+    """
+    Simulate two off-axis holograms from a phase map.
+
+    Parameters
+    ----------
+    phase : np.ndarray  [H, W]  (float, radians)
+        Ground-truth object phase.
+    f1 : (fx, fy)  cycles/pixel
+        Spatial frequency of reference beam 1.
+    f2 : (fx, fy)  cycles/pixel
+        Spatial frequency of reference beam 2.
+
+    Returns
+    -------
+    (H1, H2) : tuple of np.ndarray [H, W]  (float32)
+        Hologram intensities: H = |O + R|^2 = 2 + 2*cos(φ - φ_ref)
+
+    Note
+    ----
+    To convert from physical angles use ``angles_to_freq()``:
+        f1 = angles_to_freq(theta_x=2.0, theta_y=2.0)
     """
     H, W = phase.shape
 
-    # Pixel-index coords centred at 0  (matches physics_model.py)
+    # Pixel-index coords centred at 0 (must match physics_model.py)
     YY, XX = np.ogrid[:H, :W]
     YY = YY.astype(np.float32) - H / 2.0
     XX = XX.astype(np.float32) - W / 2.0
 
     U = np.exp(1j * phase)
 
-    def reference(theta):
-        thx, thy = theta
-        # pixel_size folded into spatial frequency (same as physics_model.py)
-        fx = pixel_size * np.sin(np.deg2rad(thx)) / wavelength
-        fy = pixel_size * np.sin(np.deg2rad(thy)) / wavelength
+    def _reference(fx, fy):
         return np.exp(1j * 2 * np.pi * (fx * XX + fy * YY))
 
-    R1 = reference(theta1)
-    R2 = reference(theta2)
+    R1 = _reference(*f1)
+    R2 = _reference(*f2)
 
-    H1 = np.abs(U + R1)**2
-    H2 = np.abs(U + R2)**2
+    H1 = np.abs(U + R1) ** 2
+    H2 = np.abs(U + R2) ** 2
 
     return H1.astype(np.float32), H2.astype(np.float32)
 
@@ -172,29 +209,36 @@ def main() -> None:
     for mode, _, _ in splits:
         (out_dir / mode).mkdir(parents=True, exist_ok=True)
 
-    print("Generating synthetic dataset with FIXED reference beam angles...")
+    # --- Cấu hình tần số tham chiếu (cycles/pixel) ---
+    # Nhập trực tiếp, hoặc dùng angles_to_freq() nếu muốn nhập bằng góc độ:
+    #   F1 = angles_to_freq(theta_x=2.0, theta_y=2.0)  # → (0.190, 0.190)
+    #   F2 = angles_to_freq(theta_x=5.0, theta_y=5.0)  # → (0.475, 0.475)
+    F1 = (0.15, 0.15)   # ~2.0° tilt — cycles/pixel
+    F2 = (0.05, 0.05)   # ~5.0° tilt — cycles/pixel
+
+    print(f"Generating synthetic dataset  |  f1={F1}  f2={F2}  (cycles/pixel)")
 
     for mode, count, seed_offset in splits:
         for idx in tqdm(range(count), desc=mode.capitalize()):
             # Fresh seeded RNG per sample → fully reproducible
             sample_rng = np.random.default_rng(seed_offset + idx)
-            
+
             # Sinh phase map với Zernike
             gt_phase = generate_zernike_phase_map(
-                shape=(256, 256), 
-                max_phase=4 * np.pi, 
+                shape=(256, 256),
+                max_phase=4 * np.pi,
                 min_modes=2,
                 max_modes=8,
                 rng=sample_rng
             )
-            
+
             # Sinh Hologram 1 & 2
-            H1, H2 = simulate_offaxis_holograms(gt_phase)
-            
+            H1, H2 = simulate_offaxis_holograms(gt_phase, f1=F1, f2=F2)
+
             # Tạo thư mục mẫu
             sample_dir = out_dir / mode / f"sample_{idx:05d}"
             sample_dir.mkdir(parents=True, exist_ok=True)
-            
+
             # Save raw arrays – npz keeps them together and compresses them.
             np.savez_compressed(sample_dir / "data.npz",
                                 gt_phase=gt_phase,
