@@ -46,8 +46,9 @@ class SyntheticHoloDataset(torch.utils.data.Dataset):
         H2 = data["hologram2"].astype(np.float32)   # [H, W]
 
         # Mean intensity normalization (stabilises training)
-        H1 /= (H1.mean() + 1e-8)
-        H2 /= (H2.mean() + 1e-8)
+        # H1: [N,1,H,W]
+        H1 = H1 / 4.0
+        H2 = H2 / 4.0
 
         inp = np.stack([H1, H2], axis=0)             # [2, H, W]
 

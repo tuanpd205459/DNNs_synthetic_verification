@@ -79,11 +79,10 @@ class OffAxisPhysicsModule(nn.Module):
         cos_phi = cos_phi / norm
         sin_phi = sin_phi / norm
 
-        # |O + R|^2 = (cosφ*cosφ_ref + sinφ*sinφ_ref)
         H1 = 2.0 + 2.0 * (    cos_phi * self.cos_ref1 +    sin_phi * self.sin_ref1)
         H2 = 2.0 + 2.0 * (    cos_phi * self.cos_ref2 +    sin_phi * self.sin_ref2)
         # Mean intensity normalization (stabilises training)
-        H1 /= (H1.mean() + 1e-8)
-        H2 /= (H2.mean() + 1e-8)
+        H1 = H1 / 4.0
+        H2 = H2 / 4.0
 
         return torch.cat([H1, H2], dim=1)   # [N, 2, H, W]
