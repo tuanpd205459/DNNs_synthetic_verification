@@ -28,8 +28,8 @@ class OffAxisPhysicsModule(nn.Module):
     def __init__(
         self,
         patch_size: int = 256,
-        f1: tuple = (0.190, 0.190),   # cycles/pixel  (~2°, λ=0.6328µm, px=3.45µm)
-        f2: tuple = (0.475, 0.475),   # cycles/pixel  (~5°)
+        f1: tuple = (0.150, 0.150),   # cycles/pixel  (~2°, λ=0.6328µm, px=3.45µm)
+        f2: tuple = (0.05, 0.05),   # cycles/pixel  (~5°)
     ):
         super().__init__()
 
@@ -79,8 +79,11 @@ class OffAxisPhysicsModule(nn.Module):
         cos_phi = cos_phi / norm
         sin_phi = sin_phi / norm
 
-        # |O + R|^2 = 2 + 2*(cosφ*cosφ_ref + sinφ*sinφ_ref)
-        H1 = 2.0 + 2.0 * (cos_phi * self.cos_ref1 + sin_phi * self.sin_ref1)
-        H2 = 2.0 + 2.0 * (cos_phi * self.cos_ref2 + sin_phi * self.sin_ref2)
+        # |O + R|^2 = (cosφ*cosφ_ref + sinφ*sinφ_ref)
+        H1 = 2.0 + 2.0 * (    cos_phi * self.cos_ref1 +    sin_phi * self.sin_ref1)
+        H2 = 2.0 + 2.0 * (    cos_phi * self.cos_ref2 +    sin_phi * self.sin_ref2)
+        # Mean intensity normalization (stabilises training)
+        H1 /= (H1.mean() + 1e-8)
+        H2 /= (H2.mean() + 1e-8)
 
         return torch.cat([H1, H2], dim=1)   # [N, 2, H, W]

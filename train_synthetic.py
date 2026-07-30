@@ -137,8 +137,8 @@ def main():
     #   from generate_synthetic_data import angles_to_freq
     #   F1 = angles_to_freq(2.0, 2.0)  # → ~(0.190, 0.190)
     #   F2 = angles_to_freq(5.0, 5.0)  # → ~(0.475, 0.475)
-    F1 = (0.190, 0.190)   # ~2.0° — cycles/pixel
-    F2 = (0.475, 0.475)   # ~5.0° — cycles/pixel
+    F1 = (0.15, 0.15)   # ~2.0° tilt — cycles/pixel
+    F2 = (0.05, 0.05)   # ~5.0° tilt — cycles/pixel
 
     physics_layer = OffAxisPhysicsModule(
         patch_size=patch_size,
