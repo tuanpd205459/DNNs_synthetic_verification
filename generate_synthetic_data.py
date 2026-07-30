@@ -96,11 +96,14 @@ def generate_zernike_phase_map(
     for c, j in zip(coeff, modes):
         phase += c * zernike_mode(j, rho, phi)
 
-
-    if phase.max() > 0:
-        phase /= phase.max()
-
-    phase *= max_phase
+    p_min = phase.min()
+    p_max = phase.max()
+    # 2. Scale phần tử bên trong mask về khoảng [0, max_phase]
+    if p_max > p_min:
+        phase = (phase - p_min) / (p_max - p_min) * max_phase
+    else:
+        # Trường hợp hiếm hoi tất cả giá trị bằng nhau
+        phase = np.zeros_like(phase)
 
     return phase.astype(np.float32)
 
