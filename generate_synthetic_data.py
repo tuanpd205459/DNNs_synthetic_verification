@@ -91,7 +91,7 @@ def generate_zernike_phase_map(
         replace=False
     )
 
-    coeff = rng.uniform(-1, 1, n_modes)
+    coeff = rng.uniform(-3, 3, n_modes)
 
     for c, j in zip(coeff, modes):
         phase += c * zernike_mode(j, rho, phi)
@@ -174,7 +174,7 @@ def main() -> None:
             # Sinh phase map với Zernike
             gt_phase = generate_zernike_phase_map(
                 shape=(256, 256), 
-                max_phase=10 * np.pi, 
+                max_phase=4 * np.pi, 
                 min_modes=2,
                 max_modes=8,
                 rng=sample_rng
